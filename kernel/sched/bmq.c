@@ -56,27 +56,16 @@
 
 static inline void print_scheduler_version(void)
 {
-	printk(KERN_INFO "bmq: BMQ CPU Scheduler 0.92 by Alfred Chen.\n");
+	printk(KERN_INFO "bmq: BMQ CPU Scheduler 0.93 by Alfred Chen.\n");
 }
 
 /**
  * sched_yield_type - Choose what sort of yield sched_yield will perform.
  * 0: No yield.
  * 1: Deboost and requeue task. (default)
+ * 2: Set rq skip task.
  */
 int sched_yield_type __read_mostly = 1;
-
-const static u64 ts_overrun_th[] = {
-	SCHED_TIMESLICE_NS / 32,
-	SCHED_TIMESLICE_NS / 16,
-	SCHED_TIMESLICE_NS / 8,
-	SCHED_TIMESLICE_NS / 4,
-	SCHED_TIMESLICE_NS / 2,
-	SCHED_TIMESLICE_NS * 3 / 4,
-	SCHED_TIMESLICE_NS * 15 / 16,
-	SCHED_TIMESLICE_NS * 63 / 64,
-	SCHED_TIMESLICE_NS * 127 / 128
-};
 
 const static u64 ts_boost_th[] = {
 	SCHED_TIMESLICE_NS >> 10,
@@ -1878,7 +1867,6 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 		} else if (PRIO_TO_NICE(p->static_prio) < 0)
 			p->static_prio = NICE_TO_PRIO(0);
 
-		p->boost_prio = 0;
 		p->prio = p->normal_prio = normal_prio(p);
 
 		/*
@@ -1888,6 +1876,7 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 		p->sched_reset_on_fork = 0;
 	}
 
+	p->boost_prio = MAX_PRIORITY_ADJ;
 	/*
 	 * Share the timeslice between parent and child, thus the
 	 * total amount of pending timeslices in the system doesn't change,
@@ -2889,12 +2878,10 @@ static inline void check_curr(struct task_struct *p, struct rq *rq)
 	if (p->time_slice < RESCHED_NS) {
 		p->time_slice = SCHED_TIMESLICE_NS;
 		if (SCHED_FIFO != p->policy && task_on_rq_queued(p)) {
-			if (SCHED_RR != p->policy &&
-			    (p->ts_deboost || TASK_ST(p, rq, >, ts_overrun_th)))
+			if (SCHED_RR != p->policy)
 				deboost_task(p);
 			requeue_task(p, rq);
 		}
-		p->ts_deboost = 0;
 	}
 }
 
@@ -3150,7 +3137,6 @@ static void __sched notrace __schedule(bool preempt)
 		if (signal_pending_state(prev->state, prev)) {
 			prev->state = TASK_RUNNING;
 		} else {
-			prev->ts_deboost |= TASK_ST(prev, rq, >, ts_overrun_th);
 			boost_task(prev, rq);
 			deactivate_task(prev, rq);
 
@@ -4631,8 +4617,16 @@ static void do_sched_yield(void)
 	rq = this_rq_lock_irq(&rf);
 
 	schedstat_inc(rq->yld_count);
-	if (rq->nr_running > 1)
-		rq->skip = current;
+
+	if (1 == sched_yield_type) {
+		if (!rt_task(current)) {
+			current->boost_prio = MAX_PRIORITY_ADJ;
+			requeue_task(current, rq);
+		}
+	} else if (2 == sched_yield_type) {
+		if (rq->nr_running > 1)
+			rq->skip = current;
+	}
 
 	/*
 	 * Since we are going to call schedule() anyway, there's
