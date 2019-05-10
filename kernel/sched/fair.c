@@ -4903,7 +4903,7 @@ static enum hrtimer_restart sched_cfs_period_timer(struct hrtimer *timer)
 			count = 0;
 		}
 
-		idle = do_sched_cfs_period_timer(cfs_b, overrun);
+		idle = do_sched_cfs_period_timer(cfs_b, overrun, flags);
 	}
 	if (idle)
 		cfs_b->period_active = 0;
