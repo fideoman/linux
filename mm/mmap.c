@@ -45,6 +45,7 @@
 #include <linux/moduleparam.h>
 #include <linux/pkeys.h>
 #include <linux/oom.h>
+#include <linux/ksm.h>
 #include <linux/sched/mm.h>
 
 #include <linux/uaccess.h>
