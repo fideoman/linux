@@ -21,20 +21,16 @@ struct mem_cgroup;
 #ifdef CONFIG_KSM
 int ksm_madvise(struct vm_area_struct *vma, unsigned long start,
 		unsigned long end, int advice, unsigned long *vm_flags);
-int __ksm_enter(struct mm_struct *mm);
-void __ksm_exit(struct mm_struct *mm);
 
-static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
+static inline struct stable_node *page_stable_node(struct page *page)
 {
-	if (test_bit(MMF_VM_MERGEABLE, &oldmm->flags))
-		return __ksm_enter(mm);
-	return 0;
+	return PageKsm(page) ? page_rmapping(page) : NULL;
 }
 
-static inline void ksm_exit(struct mm_struct *mm)
+static inline void set_page_stable_node(struct page *page,
+					struct stable_node *stable_node)
 {
-	if (test_bit(MMF_VM_MERGEABLE, &mm->flags))
-		__ksm_exit(mm);
+	page->mapping = (void *)((unsigned long)stable_node | PAGE_MAPPING_KSM);
 }
 
 /*
@@ -55,6 +51,33 @@ void rmap_walk_ksm(struct page *page, struct rmap_walk_control *rwc);
 void ksm_migrate_page(struct page *newpage, struct page *oldpage);
 bool reuse_ksm_page(struct page *page,
 			struct vm_area_struct *vma, unsigned long address);
+
+#ifdef CONFIG_KSM_LEGACY
+int __ksm_enter(struct mm_struct *mm);
+void __ksm_exit(struct mm_struct *mm);
+static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
+{
+	if (test_bit(MMF_VM_MERGEABLE, &oldmm->flags))
+		return __ksm_enter(mm);
+	return 0;
+}
+
+static inline void ksm_exit(struct mm_struct *mm)
+{
+	if (test_bit(MMF_VM_MERGEABLE, &mm->flags))
+		__ksm_exit(mm);
+}
+
+#elif defined(CONFIG_UKSM)
+static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
+{
+	return 0;
+}
+
+static inline void ksm_exit(struct mm_struct *mm)
+{
+}
+#endif /* !CONFIG_UKSM */
 
 #else  /* !CONFIG_KSM */
 
@@ -95,5 +118,7 @@ static inline bool reuse_ksm_page(struct page *page,
 }
 #endif /* CONFIG_MMU */
 #endif /* !CONFIG_KSM */
+
+#include <linux/uksm.h>
 
 #endif /* __LINUX_KSM_H */
