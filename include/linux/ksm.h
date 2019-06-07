@@ -119,6 +119,6 @@ static inline bool reuse_ksm_page(struct page *page,
 #endif /* CONFIG_MMU */
 #endif /* !CONFIG_KSM */
 
-#include <linux/uksm.h>
+#include <config/uksm.h>
 
 #endif /* __LINUX_KSM_H */
