@@ -1010,7 +1010,7 @@ static inline bool is_per_cpu_kthread(struct task_struct *p)
  */
 static inline bool is_cpu_allowed(struct task_struct *p, int cpu)
 {
-	if (!cpumask_test_cpu(cpu, &p->nr_cpus_allowed))
+	if (!cpumask_test_cpu(cpu, &p->cpus_mask))
 		return false;
 
 	if (is_per_cpu_kthread(p))
@@ -1121,7 +1121,7 @@ static int migration_cpu_stop(void *data)
 static inline void
 set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask)
 {
-	cpumask_copy(&p->nr_cpus_allowed, new_mask);
+	cpumask_copy(&p->cpus_mask, new_mask);
 	p->nr_cpus_allowed = cpumask_weight(new_mask);
 }
 
@@ -1279,7 +1279,7 @@ void kick_process(struct task_struct *p)
 EXPORT_SYMBOL_GPL(kick_process);
 
 /*
- * ->nr_cpus_allowed is protected by both rq->lock and p->pi_lock
+ * ->cpus_mask is protected by both rq->lock and p->pi_lock
  *
  * A few notes on cpu_active vs cpu_online:
  *
@@ -1319,14 +1319,14 @@ static int select_fallback_rq(int cpu, struct task_struct *p)
 		for_each_cpu(dest_cpu, nodemask) {
 			if (!cpu_active(dest_cpu))
 				continue;
-			if (cpumask_test_cpu(dest_cpu, &p->nr_cpus_allowed))
+			if (cpumask_test_cpu(dest_cpu, &p->cpus_mask))
 				return dest_cpu;
 		}
 	}
 
 	for (;;) {
 		/* Any allowed, online CPU? */
-		for_each_cpu(dest_cpu, &p->nr_cpus_allowed) {
+		for_each_cpu(dest_cpu, &p->cpus_mask) {
 			if (!is_cpu_allowed(p, dest_cpu))
 				continue;
 			goto out;
@@ -1394,7 +1394,7 @@ static inline int select_task_rq(struct task_struct *p)
 	cpumask_t chk_mask, tmp;
 	unsigned long preempt_level, level;
 
-	if (unlikely(!cpumask_and(&chk_mask, &p->nr_cpus_allowed, cpu_online_mask)))
+	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_mask, cpu_online_mask)))
 		return select_fallback_rq(task_cpu(p), p);
 
 	preempt_level = SCHED_PRIO2WATERMARK(task_sched_prio(p));
@@ -1922,7 +1922,7 @@ void wake_up_new_task(struct task_struct *p)
 #ifdef CONFIG_SMP
 	/*
 	 * Fork balancing, do it here and not earlier because:
-	 * - nr_cpus_allowed can change in the fork path
+	 * - cpus_mask can change in the fork path
 	 * - any previously selected CPU might disappear through hotplug
 	 * Use __set_task_cpu() to avoid calling sched_class::migrate_task_rq,
 	 * as we're not fully set-up yet.
@@ -2479,7 +2479,7 @@ static inline int active_load_balance_cpu_stop(void *data)
 	 * _something_ may have changed the task, double check again
 	 */
 	if (task_on_rq_queued(p) && task_rq(p) == rq &&
-	    (cpu = cpumask_any_and(&p->nr_cpus_allowed, &sched_rq_watermark[0])) < nr_cpu_ids)
+	    (cpu = cpumask_any_and(&p->cpus_mask, &sched_rq_watermark[0])) < nr_cpu_ids)
 		rq = __migrate_task(rq, p, cpu);
 
 	raw_spin_unlock(&rq->lock);
@@ -2502,7 +2502,7 @@ static inline int sg_balance_trigger(const int cpu)
 	curr = rq->curr;
 	if (!is_idle_task(curr) &&
 	    1 == rq->nr_running &&
-	    cpumask_intersects(&curr->nr_cpus_allowed, &sched_rq_watermark[0])) {
+	    cpumask_intersects(&curr->cpus_mask, &sched_rq_watermark[0])) {
 		int active_balance = 0;
 
 		if (likely(!rq->active_balance)) {
@@ -2812,7 +2812,7 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq)
 		if (task_running(p))
 			continue;
 		next = rq_next_bmq_task(p, rq);
-		if (cpumask_test_cpu(dest_cpu, &p->nr_cpus_allowed)) {
+		if (cpumask_test_cpu(dest_cpu, &p->cpus_mask)) {
 			dequeue_task(p, rq, 0);
 			set_task_cpu(p, dest_cpu);
 			enqueue_task(p, dest_rq, 0);
@@ -3655,7 +3655,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 		goto out;
 	}
 
-	if (cpumask_equal(&p->nr_cpus_allowed, new_mask))
+	if (cpumask_equal(&p->cpus_mask, new_mask))
 		goto out;
 
 	if (!cpumask_intersects(new_mask, cpu_valid_mask)) {
@@ -4340,7 +4340,7 @@ out_unlock:
 
 long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 {
-	cpumask_var_t nr_cpus_allowed, new_mask;
+	cpumask_var_t cpus_mask, new_mask;
 	struct task_struct *p;
 	int retval;
 
@@ -4362,7 +4362,7 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 		retval = -EINVAL;
 		goto out_put_task;
 	}
-	if (!alloc_cpumask_var(&cpus_allowed, GFP_KERNEL)) {
+	if (!alloc_cpumask_var(&cpus_mask, GFP_KERNEL)) {
 		retval = -ENOMEM;
 		goto out_put_task;
 	}
@@ -4384,27 +4384,27 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	if (retval)
 		goto out_unlock;
 
-	cpuset_cpus_allowed(p, nr_cpus_allowed);
-	cpumask_and(new_mask, in_mask, nr_cpus_allowed);
+	cpuset_cpus_allowed(p, cpus_mask);
+	cpumask_and(new_mask, in_mask, cpus_mask);
 again:
 	retval = __set_cpus_allowed_ptr(p, new_mask, true);
 
 	if (!retval) {
-		cpuset_cpus_allowed(p, nr_cpus_allowed);
-		if (!cpumask_subset(new_mask, nr_cpus_allowed)) {
+		cpuset_cpus_allowed(p, cpus_mask);
+		if (!cpumask_subset(new_mask, cpus_mask)) {
 			/*
 			 * We must have raced with a concurrent cpuset
-			 * update. Just reset the nr_cpus_allowed to the
-			 * cpuset's nr_cpus_allowed
+			 * update. Just reset the cpus_mask to the
+			 * cpuset's cpus_mask
 			 */
-			cpumask_copy(new_mask, nr_cpus_allowed);
+			cpumask_copy(new_mask, cpus_mask);
 			goto again;
 		}
 	}
 out_unlock:
 	free_cpumask_var(new_mask);
 out_free_cpus_allowed:
-	free_cpumask_var(nr_cpus_allowed);
+	free_cpumask_var(cpus_mask);
 out_put_task:
 	put_task_struct(p);
 	put_online_cpus();
@@ -4465,7 +4465,7 @@ long sched_getaffinity(pid_t pid, cpumask_t *mask)
 		goto out_unlock;
 
 	task_access_lock_irqsave(p, &lock, &flags);
-	cpumask_and(mask, &p->nr_cpus_allowed, cpu_active_mask);
+	cpumask_and(mask, &p->cpus_mask, cpu_active_mask);
 	task_access_unlock_irqrestore(p, lock, &flags);
 
 out_unlock:
@@ -5044,27 +5044,26 @@ void wake_q_add_safe(struct wake_q_head *head, struct task_struct *task)
 		put_task_struct(task);
 }
 
-void wake_up_q(struct wake_q_head *head)
-{
-	struct wake_q_node *node = head->first;
-
-	while (node != WAKE_Q_TAIL) {
-		struct task_struct *task;
-
-		task = container_of(node, struct task_struct, wake_q);
-		BUG_ON(!task);
-		/* task can safely be re-inserted now: */
-		node = node->next;
-		task->wake_q.next = NULL;
-
-		/*
-		 * wake_up_process() executes a full barrier, which pairs with
-		 * the queueing in wake_q_add() so as not to miss wakeups.
-		 */
-		wake_up_process(task);
-		put_task_struct(task);
-	}
-}
+/*
+*void wake_up_q(struct wake_q_head *head)
+*{
+*	struct wake_q_node *node = head->first;
+*
+*	while (node != WAKE_Q_TAIL) {
+*		struct task_struct *task;
+*
+*		task = container_of(node, struct task_struct, wake_q);
+*		BUG_ON(!task);
+*		// task can safely be re-inserted now:
+*		node = node->next;
+*		task->wake_q.next = NULL;
+*
+*		// wake_up_process() executes a full barrier, which pairs with the queueing in wake_q_add() so as not to miss wakeups.
+*		wake_up_process(task);
+*		put_task_struct(task);
+*	}
+*}
+*/
 
 #ifdef CONFIG_SMP
 
@@ -5086,7 +5085,7 @@ int task_can_attach(struct task_struct *p,
 	 * allowed nodes is unnecessary.  Thus, cpusets are not
 	 * applicable for such threads.  This prevents checking for
 	 * success of set_cpus_allowed_ptr() on all attached tasks
-	 * before nr_cpus_allowed may be changed.
+	 * before cpus_mask may be changed.
 	 */
 	if (p->flags & PF_NO_SETAFFINITY)
 		ret = -EINVAL;
