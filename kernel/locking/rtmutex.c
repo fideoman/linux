@@ -235,10 +235,11 @@ static inline bool unlock_rt_mutex_safe(struct rt_mutex *lock,
 /*
  * Only use with rt_mutex_waiter_{less,equal}()
  */
-#define task_to_waiter(p)	\
 #ifndef CONFIG_SCHED_BMQ
+# define task_to_waiter(p)	\
 	&(struct rt_mutex_waiter){ .prio = (p)->prio, .deadline = (p)->dl.deadline, .task = (p) }
 #else
+# define task_to_waiter(p)	\
 	&(struct rt_mutex_waiter){ .prio = (p)->prio, .task = (p) }
 #endif
 
