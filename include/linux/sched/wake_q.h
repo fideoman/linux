@@ -58,10 +58,14 @@ extern void wake_q_add_sleeper(struct wake_q_head *head, struct task_struct *tas
 
 extern void __wake_up_q(struct wake_q_head *head, bool sleeper);
 
+#ifndef CONFIG_SCHED_BMQ
 static inline void wake_up_q(struct wake_q_head *head)
 {
 	__wake_up_q(head, false);
 }
+#else
+extern void wake_up_q(struct wake_q_head *head);
+#endif
 
 static inline void wake_up_q_sleeper(struct wake_q_head *head)
 {
